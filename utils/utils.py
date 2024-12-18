@@ -66,3 +66,106 @@ def outpoint_to_bytes(txid, index):
     if len(txid) != 32:
         raise ValueError("TXID must be exactly 32 bytes")
     return txid[::-1] + struct.pack('>I', index)
+
+class OutPoint:
+    def __init__(self, hash: str, index: int):
+        self.hash = hash
+        self.index = index
+
+    def __eq__(self, other):
+        return isinstance(other, OutPoint) and self.hash == other.hash and self.index == other.index
+
+    def __hash__(self):
+        return hash((self.hash, self.index))
+
+
+class TxIn:
+    def __init__(self, previous_out_point: OutPoint):
+        self.previous_out_point = previous_out_point
+
+
+class TxOut:
+    def __init__(self, unspendable: bool):
+        self.unspendable = unspendable
+
+
+class Tx:
+    def __init__(self, tx_in: List[TxIn], tx_out: List[TxOut]):
+        self.tx_in = tx_in
+        self.tx_out = tx_out
+
+    def msg_tx(self):
+        return self
+
+
+class Block:
+    def __init__(self, transactions: List[Tx]):
+        self.transactions = transactions
+
+
+def block_to_del_ops(blk: Block) -> List[OutPoint]:
+    transactions = blk.transactions
+    in_count, _, inskip, _ = dedupe_block(blk)
+
+    del_ops = []
+    input_in_block = 0
+
+    for tx in transactions:
+        for txin in tx.msg_tx().tx_in:
+            if inskip and inskip[0] == input_in_block:
+                inskip.pop(0)
+                input_in_block += 1
+                continue
+
+            del_ops.append(txin.previous_out_point)
+            input_in_block += 1
+
+    return del_ops
+
+
+def dedupe_block(blk: Block) -> Tuple[int, int, List[int], List[int]]:
+    in_count = 0
+    out_count = 0
+    inskip = []
+    outskip = []
+
+    in_map = defaultdict(int)
+    i = 0
+
+    for coinbase_if_zero, tx in enumerate(blk.transactions):
+        if coinbase_if_zero == 0:
+            inskip = [0]
+            i += len(tx.msg_tx().tx_in)
+            continue
+
+        for txin in tx.msg_tx().tx_in:
+            in_map[txin.previous_out_point] = i
+            i += 1
+
+    in_count = i
+    i = 0
+
+    for tx in blk.transactions:
+        for out_idx, tx_out in enumerate(tx.msg_tx().tx_out):
+            if is_unspendable(tx_out):
+                outskip.append(i)
+                i += 1
+                continue
+
+            op = OutPoint(hash(tx), out_idx)
+            if op in in_map:
+                inskip.append(in_map[op])
+                outskip.append(i)
+            i += 1
+
+    out_count = i
+    inskip.sort()
+    return in_count, out_count, inskip, outskip
+
+
+def is_unspendable(tx_out: TxOut) -> bool:
+    return tx_out.unspendable
+
+
+def hash(tx: Tx) -> str:
+    return "some_hash_representation"
