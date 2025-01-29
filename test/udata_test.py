@@ -81,5 +81,63 @@ class TestUData(unittest.TestCase):
         with self.assertRaises(ValueError):
             UData.gen_udata(del_leaves, mock_forest, 100)
 
+    def test_to_compact_bytes(self):
+        compact_bytes = self.udata.to_compact_bytes()
+        self.assertIsInstance(compact_bytes, bytes)
+        self.assertGreater(len(compact_bytes), 0)
+
+    def test_from_compact_bytes(self):
+        compact_bytes = self.udata.to_compact_bytes()
+        new_udata = UData.from_compact_bytes(compact_bytes)
+        
+        self.assertEqual(new_udata.height, self.udata.height)
+        self.assertEqual(len(new_udata.stxos), len(self.udata.stxos))
+        self.assertEqual(new_udata.acc_proof.targets, self.udata.acc_proof.targets)
+
+    def test_from_compact_bytes_invalid_data(self):
+        with self.assertRaises(ValueError):
+            UData.from_compact_bytes(b"\x00\x00\x00")
+
+    def test_serialize_empty_data(self):
+        empty_udata = UData()
+        buf = io.BytesIO()
+        empty_udata.serialize(buf)
+        self.assertGreater(len(buf.getvalue()), 0)
+
+    def test_deserialize_empty_data(self):
+        empty_udata = UData()
+        buf = io.BytesIO()
+        empty_udata.serialize(buf)
+        buf.seek(0)
+        new_udata = UData()
+        new_udata.deserialize(buf)
+        self.assertEqual(new_udata.height, empty_udata.height)
+        self.assertEqual(len(new_udata.stxos), len(empty_udata.stxos))
+        self.assertEqual(new_udata.acc_proof.targets, empty_udata.acc_proof.targets)
+
+    def test_proof_sanity_invalid(self):
+        self.udata.acc_proof.targets = [0, 1, 2]
+        self.assertFalse(self.udata.proof_sanity(0, 0))
+
+    def test_serialize_size_with_no_stxos(self):
+        empty_udata = UData()
+        size = empty_udata.serialize_size()
+        self.assertEqual(size, 8)
+
+    def test_serialize_and_deserialize_with_multiple_ttls(self):
+        self.udata.txo_ttls = [100, 200, 300]
+        buf = io.BytesIO()
+        self.udata.serialize(buf)
+        buf.seek(0)
+        new_udata = UData()
+        new_udata.deserialize(buf)
+        self.assertEqual(new_udata.txo_ttls, self.udata.txo_ttls)
+
+    def test_gen_udata_with_empty_forest(self):
+        mock_forest = MagicMock()
+        mock_forest.prove_batch = MagicMock(return_value=BatchProof())
+        with self.assertRaises(ValueError):
+            UData.gen_udata([], mock_forest, 100)
+
 if __name__ == "__main__":
     unittest.main()
