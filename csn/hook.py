@@ -69,3 +69,96 @@ class Csn:
         """Push a transaction."""
         print("PushTx not yet implemented.")
         return None
+
+    def process_block(self, block):
+        """
+        Process a new block and update state.
+
+        Args:
+            block: Block object containing transactions and header
+        """
+        if not block:
+            return False
+
+        # Verify block height matches expected
+        if block.height != self.current_height + 1:
+            return False
+
+        # Process all transactions in block
+        for tx in block.transactions:
+            self.process_transaction(tx)
+
+        self.current_height = block.height
+        self.height_channel.append(block.height)
+        return True
+
+    def process_transaction(self, tx):
+        """
+        Process a single transaction, updating UTXO set and notifying listeners.
+
+        Args:
+            tx: Transaction object
+        """
+        # Check if transaction is relevant to watched addresses/outpoints
+        is_relevant = False
+
+        # Remove spent inputs from UTXO set
+        for tx_in in tx.inputs:
+            outpoint = tx_in.previous_output
+            if outpoint in self.watch_ops:
+                is_relevant = True
+                if outpoint in self.utxo_store:
+                    del self.utxo_store[outpoint]
+
+        # Add new outputs to UTXO set if watching address
+        for index, tx_out in enumerate(tx.outputs):
+            if tx_out.address in self.watch_addresses:
+                is_relevant = True
+                outpoint = (tx.txid, index)
+                self.utxo_store[outpoint] = tx_out
+
+        # Notify listeners if transaction is relevant
+        if is_relevant:
+            self.tx_channel.append(tx)
+
+    def get_utxos(self, address: bytes):
+        """
+        Get all UTXOs for a given address.
+
+        Args:
+            address: Address to get UTXOs for
+
+        Returns:
+            dict: Dictionary of outpoint -> output for address
+        """
+        address_utxos = {}
+        for outpoint, output in self.utxo_store.items():
+            if output.address == address:
+                address_utxos[outpoint] = output
+        return address_utxos
+
+    def get_balance(self, address: bytes):
+        """
+        Get total balance for an address.
+
+        Args:
+            address: Address to get balance for
+
+        Returns:
+            int: Total balance in satoshis
+        """
+        utxos = self.get_utxos(address)
+        return sum(output.value for output in utxos.values())
+
+    def start(self, height: int, host: str):
+        """
+        Start the CSN from a given height.
+
+        Args:
+            height: Block height to start from
+            host: Remote node host to connect to
+        """
+        self.current_height = height
+        self.remote_host = host
+        self.height_channel = []
+        self.tx_channel = []
